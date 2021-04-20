@@ -22,6 +22,6 @@ config.output_anno_dir = '/ your output annotation path /'
 
 
 
-config.perspect_image_dir = '/home/wangyuhang/final_val/deepvac-face/src/val_test/hats_0420'
-config.perspect_mask_dir = '/home/wangyuhang/final_val/deepvac-face/src/val_test/mask_0420'
+config.perspect_image_dir = '/ your perspect image dir /'
+config.perspect_mask_dir = '/ your perspect mask dir /'
 config.perspect_num = 5
