@@ -5,14 +5,12 @@ import numpy as np
 import cv2
 import time
 import random
+import math
 
-from deepvac import Deepvac
+from deepvac import Deepvac, LOG
 from deepvac.syszux_aug import ColorJitterAug, BrightnessJitterAug, ContrastJitterAug, HalfDarkAug, PerspectAug
 from modules.model import RetinaFaceMobileNet, RetinaFaceResNet
 from deepvac.syszux_post_process import py_cpu_nms, decode, decode_landm, PriorBox
-
-import math
-from config import config as deepvac_config
 
 class RetinaTest(Deepvac):
     def __init__(self, retina_config):
@@ -216,33 +214,64 @@ class Synthesis2D(object):
         return img_raw, mask_label
 
     def __call__(self):
-        img_path = self.conf.input_img_dir
-        hat_path = self.conf.hat_dir
-        mask_path = self.conf.input_mask_dir
-        to_image_path = self.conf.to_image_dir
-        to_anno_path = self.conf.to_anno_dir
+        input_image_dir = self.conf.input_image_dir
+        input_hat_image_dir = self.conf.input_hat_image_dir
+        input_hat_mask_dir = self.conf.input_hat_mask_dir
+        output_image_dir = self.conf.output_image_dir
+        output_anno_dir = self.conf.output_anno_dir
         
-        imgs = os.listdir(img_path)
-        hats = os.listdir(hat_path)
+        imgs = os.listdir(input_image_dir)
+        hats = os.listdir(input_hat_image_dir)
     
         for i, img in enumerate(imgs):
-            print('num: ', i, os.path.join(img_path, img))
+            print('num: ', i, os.path.join(input_image_dir, img))
         
-            img_raw = cv2.imread('{}/{}'.format(img_path, img))
+            img_raw = cv2.imread('{}/{}'.format(input_image_dir, img))
         
             name = hats[random.randint(0, len(hats)-1)]
 
-            rgb_hat = cv2.imread('{}/{}'.format(hat_path, name))
-            a = cv2.imread('{}/{}.png'.format(mask_path, os.path.splitext(name)[0]))
+            rgb_hat = cv2.imread('{}/{}'.format(input_hat_image_dir, name))
+            a = cv2.imread('{}/{}.png'.format(input_hat_mask_dir, os.path.splitext(name)[0]))
         
             new_img, mask_label = self.process(img_raw, rgb_hat, a)
         
             if new_img is None:
                 continue
         
-            cv2.imwrite("{}/{}".format(to_image_path, img),new_img)
-            cv2.imwrite("{}/{}.png".format(to_anno_path, os.path.splitext(img)[0]),mask_label)
+            cv2.imwrite("{}/{}".format(output_image_dir, img),new_img)
+            cv2.imwrite("{}/{}.png".format(output_anno_dir, os.path.splitext(img)[0]),mask_label)
+
+
+def perspect(image_dir, mask_dir, num):
+    names = os.listdir(image_dir)
+
+    perspect_aug = PerspectAug(None)
+    perspect_aug_mask = PerspectAug(None)
+    perspect_aug_mask.borderValue = (0, 0, 0)
+    
+    for name in names:
+        for i in range(num):
+            img = cv2.imread('{}/{}.jpg'.format(image_dir, os.path.splitext(name)[0]))
+            mask = cv2.imread('{}/{}.png'.format(mask_dir, os.path.splitext(name)[0]))
+            perspect_img = perspect_aug(img)
+            perspect_mask = perspect_aug_mask(mask)
+            cv2.imwrite('{}/{}_{}.jpg'.format(image_dir, os.path.splitext(name)[0], i+1), perspect_img)
+            cv2.imwrite('{}/{}_{}.png'.format(mask_dir, os.path.splitext(name)[0], i+1), perspect_mask)
 
 if __name__ == '__main__':
-    synthesis = Synthesis2D(deepvac_config)
-    synthesis()
+    from config import config
+    import sys
+    if len(sys.argv) != 2:
+        LOG.logE("Usage: python synthesis.py <synthesis|perspect>", exit=True)
+
+    op = sys.argv[1]
+
+    if op not in ('synthesis','perspect'):
+        LOG.logE("Usage: python synthesis.py <synthesis|perspect>", exit=True)
+
+    if op == 'synthesis':
+        synthesis = Synthesis2D(config)
+        synthesis()
+    
+    if op == 'perspect':
+        perspect(config.perspect_image_dir, config.perspect_mask_dir, config.perspect_num)

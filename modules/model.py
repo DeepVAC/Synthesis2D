@@ -137,9 +137,8 @@ class RetinaFaceResNetBackbone(ResNet50):
         return out
 
 class RetinaFaceResNet(RetinaFaceMobileNet):
-    def __init__(self, device):
+    def __init__(self):
         super(RetinaFaceResNet, self).__init__()
-        self.device = device
 
     def auditConfig(self):
         self.in_channels_list = [512, 1024, 2048]
