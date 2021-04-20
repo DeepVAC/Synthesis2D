@@ -2,9 +2,6 @@ import torch
 import torch.nn as nn
 import torchvision.models._utils as _utils
 
-import sys
-sys.path.insert(0, '/gemfield/hostpv/deepvac-face-det/github/deepvac')
-
 from deepvac.syszux_modules import SSH, FPN
 from deepvac.syszux_mobilenet import MobileNetV3Large
 from deepvac.syszux_resnet import ResNet50
