@@ -258,16 +258,34 @@ def perspect(image_dir, mask_dir, num):
             cv2.imwrite('{}/{}_{}.jpg'.format(image_dir, os.path.splitext(name)[0], i+1), perspect_img)
             cv2.imwrite('{}/{}_{}.png'.format(mask_dir, os.path.splitext(name)[0], i+1), perspect_mask)
 
+def checkMask(mask):
+    if mask.ndim == 3:
+        mask = mask[:, :, 0]
+
+def fusion(hat_mask_dir, clothes_mask_dir, new_mask_dir):
+    hats = os.listdir(hat_mask_dir)
+    for fn in hats:
+        fp = os.path.join(hat_mask_dir, fn)
+        mask_hat = cv2.imread(fp)
+        checkMask(mask_hat)
+
+        fp = os.path.join(clothes_mask_dir, fn)
+        mask_clothes = cv2.imread(fp)
+        checkMask(mask_clothes)
+
+        mask = np.clip(mask_hat + mask_clothes, 0, 3)
+        cv2.imwrite(os.path.join(new_mask_dir, fn), mask)
+
 if __name__ == '__main__':
     from config import config
     import sys
     if len(sys.argv) != 2:
-        LOG.logE("Usage: python synthesis.py <synthesis|perspect>", exit=True)
+        LOG.logE("Usage: python synthesis.py <synthesis|perspect|fusion>", exit=True)
 
     op = sys.argv[1]
 
-    if op not in ('synthesis','perspect'):
-        LOG.logE("Usage: python synthesis.py <synthesis|perspect>", exit=True)
+    if op not in ('synthesis', 'perspect', 'fusion'):
+        LOG.logE("Usage: python synthesis.py <synthesis|perspect|fusion>", exit=True)
 
     if op == 'synthesis':
         synthesis = Synthesis2D(config)
@@ -275,3 +293,6 @@ if __name__ == '__main__':
     
     if op == 'perspect':
         perspect(config.perspect_image_dir, config.perspect_mask_dir, config.perspect_num)
+
+    if op == 'fusion':
+        fusion(config.fusion_hat_mask_dir, config.fusion_clothes_mask_dir, config.fusion_new_mask_dir)
