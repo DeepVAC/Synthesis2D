@@ -25,3 +25,7 @@ config.output_anno_dir = '/ your output annotation path /'
 config.perspect_image_dir = '/ your perspect image dir /'
 config.perspect_mask_dir = '/ your perspect mask dir /'
 config.perspect_num = 5
+
+config.fusion_hat_mask_dir = '/ your fusion hat mask dir /'
+config.fusion_clothes_mask_dir = '/ your fusion clothes mask dir /'
+config.fusion_new_mask_dir = '/ your fusion new(fusion) mask dir /'
