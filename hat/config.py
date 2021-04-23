@@ -30,3 +30,8 @@ config.flip_mask_dir = '/ your flip mask dir /'
 config.fusion_hat_mask_dir = '/ your fusion hat mask dir /'
 config.fusion_clothes_mask_dir = '/ your fusion clothes mask dir /'
 config.fusion_new_mask_dir = '/ your fusion new(fusion) mask dir /'
+
+config.generate_input_hat_image_dir_from_cocoannotator = '/ your input hat image dir /'
+config.generate_input_hat_mask_dir_from_cocoannotator = '/ your input hat mask dir /'
+config.generate_output_hat_image_dir = '/ your output hat image dir /'
+config.generate_output_hat_mask_dir = '/ your output hat mask dir /'
