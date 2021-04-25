@@ -241,6 +241,29 @@ class Synthesis2D(object):
             cv2.imwrite("{}/{}".format(output_image_dir, img),new_img)
             cv2.imwrite("{}/{}.png".format(output_anno_dir, os.path.splitext(img)[0]),mask_label)
 
+def generate(hat_image_input_dir, hat_mask_input_dir, hat_image_output_dir, hat_mask_output_dir):
+    imgs = os.listdir(hat_mask_input_dir)
+
+    for img in imgs:
+        alpha = cv2.imread(os.path.join(hat_mask_input_dir, img))
+        ori_img = cv2.imread('{}/{}.jpg'.format(hat_image_input_dir, os.path.splitext(img)[0]))        
+        alpha[alpha!=1] = 0
+        ori_img = cv2.multiply(ori_img, alpha)
+        ori_img[ori_img==0] = 255
+        alpha[alpha==1] = 255
+
+        coor = np.nonzero(alpha)
+        ymin = coor[0][0]
+        ymax = coor[0][-1]
+        coor[1].sort()
+        xmin = coor[1][0]
+        xmax = coor[1][-1]
+        alpha = alpha[ymin:ymax, xmin:xmax]        
+        ori_img = ori_img[ymin:ymax, xmin:xmax]
+
+        cv2.imwrite(os.path.join(hat_mask_output_dir, img), alpha)
+        cv2.imwrite('{}/{}.jpg'.format(hat_image_output_dir, os.path.splitext(img)[0]), ori_img)
+
 
 def perspect(image_dir, mask_dir, num):
     names = os.listdir(image_dir)
@@ -310,3 +333,6 @@ if __name__ == '__main__':
     
     if op == 'flip':
         flip(config.flip_image_dir, config.flip_mask_dir)
+
+    if op == 'generate':
+        generate(config.generate_input_hat_dir_image_from_cocoannotator, config.generate_input_hat_mask_dir_from_cocoannotator, config.generate_output_hat_image_dir, config.generate_output_hat_mask_dir)
