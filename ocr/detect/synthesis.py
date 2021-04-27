@@ -341,6 +341,15 @@ class SynthesisText(SynthesisBase):
                     self.text_boxes.append(text_box)
                     break
 
+    def isCrossed(self, x, y, im):
+        if x<0 or y<0:
+            return True
+        if x+im.size[0]>=self.frame.shape[1]:
+            return True
+        if y+im.size[1]>=self.frame.shape[0]:
+            return True
+        return False
+
     def genDenseTextBoxes(self):
         if len(self.fg_images) <= 0:
             return
@@ -348,7 +357,7 @@ class SynthesisText(SynthesisBase):
         initial_box = [aligin,aligin,aligin+self.fg_images[0].size[0],aligin+self.fg_images[0].size[1]]
         self.text_boxes.append(initial_box)
         already_double_column = False
-        sina = math.sin(math.pi*self.angle/180)
+        sina = abs(math.sin(math.pi*self.angle/180))
         cosa = math.cos(math.pi*self.angle/180)
         for idx, fg_image in enumerate(self.fg_images):
             if idx==0:
@@ -361,32 +370,32 @@ class SynthesisText(SynthesisBase):
 
             prev_font_size = self.font_size_list[idx-1]
             cur_font_size = self.font_size_list[idx]
-            if self.angle<=0:
-                if abs(self.angle)<=45:
-                    prev_y += prev_font_size*cosa + cur_font_size*(1/cosa-cosa)
-                else:
-                    prev_x += prev_font_size*abs(sina) + cur_font_size*(1/abs(sina)-abs(sina))
+            prev_length = self.font_length_list[idx-1]
+            cur_length = self.font_length_list[idx]
+            if self.angle>=-90 and self.angle<-45:
+                prev_x += prev_font_size*sina + cur_font_size*(1/sina-sina)
+            elif self.angle>=-45 and self.angle<0:
+                prev_y += prev_font_size*cosa + cur_font_size*(1/cosa-cosa)
+            elif self.angle>=0 and self.angle<45:
+                prev_y += (prev_length-cur_length)*sina+prev_font_size/cosa
             else:
-                prev_length = self.font_length_list[idx-1]
-                cur_length = self.font_length_list[idx]
-                if abs(self.angle)<=45:
-                    prev_y += (prev_length-cur_length)*abs(sina)+prev_font_size/cosa
-                else:
-                    prev_x += (prev_length-cur_length)*cosa+prev_font_size/abs(sina)
-            prev_x, prev_y = int(prev_x), int(prev_y)
-            if prev_x<0 or prev_y<0 or prev_x+fg_image.size[0]>=self.frame.shape[1] or prev_y+fg_image.size[1]>=self.frame.shape[0]:
-                if not already_double_column and abs(self.angle)<=45:
-                    already_double_column = True
-                    self.text_boxes.append([aligin+int(self.frame.shape[1]/2), aligin, aligin+int(self.frame.shape[1]/2)+fg_image.size[0], aligin+fg_image.size[1]])
-                else:
-                    self.text_boxes.append(None)
+                prev_x += (prev_length-cur_length)*cosa+prev_font_size/sina
+
+            prev_x = int(prev_x)
+            prev_y = int(prev_y)
+
+            if not self.isCrossed(prev_x, prev_y, fg_image):
+                self.text_boxes.append([prev_x, prev_y, prev_x+fg_image.size[0], prev_y+fg_image.size[1]])
                 continue
-            self.text_boxes.append([prev_x, prev_y, prev_x+fg_image.size[0], prev_y+fg_image.size[1]])
+            if already_double_column or abs(self.angle)>45:
+                self.text_boxes.append(None)
+                continue
+            already_double_column = True
+            self.text_boxes.append([aligin+int(self.frame.shape[1]/2), aligin, aligin+int(self.frame.shape[1]/2)+fg_image.size[0], aligin+fg_image.size[1]])
 
     def buildPasteArea(self, i):
         self.text_boxes = []
         if self.is_dense:
-            # paste dense text 
             self.genDenseTextBoxes()
         else:
             kp_image = cv2.Canny(self.frame, 50, 150) // 255
