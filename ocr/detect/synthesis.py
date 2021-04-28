@@ -121,6 +121,7 @@ class SynthesisText(SynthesisBase):
 
         self.min_text_num = 5
         self.max_text_num = 15
+        self.dense_text_num = 50
 
         self.min_rotate_angle = -90
         self.max_rotate_angle = 90
@@ -218,6 +219,8 @@ class SynthesisText(SynthesisBase):
 
         self.s_width = width
         self.s_height = height
+        self.font_size_list.append(self.s_height)
+        self.font_length_list.append(self.s_width)
 
     def getRotateCoord(self, wh, angle):
         height = wh[1]
@@ -242,16 +245,27 @@ class SynthesisText(SynthesisBase):
         return  np.array([coord1, coord2, coord3, coord4])
 
     def buildFGImages(self):
+        self.is_dense = False
+        self.use_same_font = False
         self.text_num = np.random.randint(self.min_text_num,self.max_text_num+1)
+        if np.random.rand() < self.conf.dense_ratio:
+            self.is_dense = True
+            self.text_num = self.dense_text_num 
         self.fg_images = []
         self.text_coordinates_in_fg = []
         for _ in range(self.text_num):
             img = Image.new("RGBA", (self.max_font*30, self.max_font+5), color=(0, 0, 0, 0))
             self.fg_images.append(img)
+        self.angle = np.random.randint(self.min_rotate_angle, self.max_rotate_angle + 1)
+        if np.random.rand() < self.conf.same_font_ratio:
+            self.use_same_font = True
+        self.font_size_list = []
+        self.font_length_list = []
 
     def randomRotateImage(self, i):
         self.fg_images[i] = self.fg_images[i].crop((0, 0, self.s_width, self.s_height))
-        self.angle = np.random.randint(self.min_rotate_angle, self.max_rotate_angle + 1)
+        if not self.is_dense:
+            self.angle = np.random.randint(self.min_rotate_angle, self.max_rotate_angle + 1)
         wh = self.fg_images[i].size[:2]
         self.fg_images[i] = self.fg_images[i].rotate(self.angle, expand=True)
         self.text_coordinates_in_fg.append(self.getRotateCoord(wh, self.angle))
@@ -284,12 +298,6 @@ class SynthesisText(SynthesisBase):
             LOG.logW("Image {} paste no text.".format(i))
 
     def checkBoxIsOverlap(self, b_box):
-        """
-        检查区域是否有交集
-        :param a_box:
-        :param b_box:
-        :return:
-        """
         for a_box in self.text_boxes:
             if a_box == None:
                 continue
@@ -322,8 +330,9 @@ class SynthesisText(SynthesisBase):
         return None
 
     def genTextBoxes(self):
+        if len(self.fg_images) <= 0:
+            return
         bg_h, bg_w = self.scene_hw
-        self.text_boxes = []
         for fg_image in self.fg_images:
             fg_w, fg_h = fg_image.size[:2]
             for try_num in range(self.integral_thre_try_num):
@@ -332,11 +341,67 @@ class SynthesisText(SynthesisBase):
                     self.text_boxes.append(text_box)
                     break
 
+    def isCrossed(self, x, y, im):
+        if x<0 or y<0:
+            return True
+        if x+im.size[0]>=self.frame.shape[1]:
+            return True
+        if y+im.size[1]>=self.frame.shape[0]:
+            return True
+        return False
+
+    def genDenseTextBoxes(self):
+        if len(self.fg_images) <= 0:
+            return
+        aligin = 100
+        initial_box = [aligin,aligin,aligin+self.fg_images[0].size[0],aligin+self.fg_images[0].size[1]]
+        self.text_boxes.append(initial_box)
+        already_double_column = False
+        sina = abs(math.sin(math.pi*self.angle/180))
+        cosa = math.cos(math.pi*self.angle/180)
+        for idx, fg_image in enumerate(self.fg_images):
+            if idx==0:
+                continue
+            fg_w, fg_h = fg_image.size[:2]
+            if not self.text_boxes[idx-1]:
+                self.text_boxes.append(None)
+                continue
+            prev_x, prev_y = self.text_boxes[idx-1][:2]
+
+            prev_font_size = self.font_size_list[idx-1]
+            cur_font_size = self.font_size_list[idx]
+            prev_length = self.font_length_list[idx-1]
+            cur_length = self.font_length_list[idx]
+            if self.angle>=-90 and self.angle<-45:
+                prev_x += prev_font_size*sina + cur_font_size*(1/sina-sina)
+            elif self.angle>=-45 and self.angle<0:
+                prev_y += prev_font_size*cosa + cur_font_size*(1/cosa-cosa)
+            elif self.angle>=0 and self.angle<45:
+                prev_y += (prev_length-cur_length)*sina+prev_font_size/cosa
+            else:
+                prev_x += (prev_length-cur_length)*cosa+prev_font_size/sina
+
+            prev_x = int(prev_x)
+            prev_y = int(prev_y)
+
+            if not self.isCrossed(prev_x, prev_y, fg_image):
+                self.text_boxes.append([prev_x, prev_y, prev_x+fg_image.size[0], prev_y+fg_image.size[1]])
+                continue
+            if already_double_column or abs(self.angle)>45:
+                self.text_boxes.append(None)
+                continue
+            already_double_column = True
+            self.text_boxes.append([aligin+int(self.frame.shape[1]/2), aligin, aligin+int(self.frame.shape[1]/2)+fg_image.size[0], aligin+fg_image.size[1]])
+
     def buildPasteArea(self, i):
-        kp_image = cv2.Canny(self.frame, 50, 150) // 255
-        sum_arr = np.zeros(self.scene_hw, np.float32)
-        self.image_integral = cv2.integral(kp_image, sum_arr, cv2.CV_32FC1)
-        self.genTextBoxes()
+        self.text_boxes = []
+        if self.is_dense:
+            self.genDenseTextBoxes()
+        else:
+            kp_image = cv2.Canny(self.frame, 50, 150) // 255
+            sum_arr = np.zeros(self.scene_hw, np.float32)
+            self.image_integral = cv2.integral(kp_image, sum_arr, cv2.CV_32FC1)
+            self.genTextBoxes()
 
     def __call__(self):
         start_time = time.time()
@@ -351,7 +416,7 @@ class SynthesisText(SynthesisBase):
             self.dumpTextImg(i)
             if i%5000==0:
                 LOG.logI('{}/{}'.format(i,self.total_num))
-        LOG.logI("Time: {}".format(time.time() - start_time))
+        LOG.logI("Total time: {}".format(time.time() - start_time))
 
 class SynthesisTextPure(SynthesisText):
     def __init__(self, deepvac_config):
@@ -379,12 +444,13 @@ class SynthesisTextPure(SynthesisText):
 
     def buildTextWithScene(self, i):
         for idx in range(self.text_num):
-            s, font = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
-            fillcolor = self.fg_color[i%self.fg_color_len]
+            if not self.use_same_font or idx==0:
+                s, font = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
+                fillcolor = self.fg_color[i%self.fg_color_len]
+            s, _ = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
             self.draw = ImageDraw.Draw(self.fg_images[idx])
             self.drawText(self.font_offset,font,fillcolor,s)
             self.randomRotateImage(idx)
-            #self.fg_images[idx].save(str(i)+'_'+str(idx)+'.png')
 
 class SynthesisTextFromVideo(SynthesisText):
     def __init__(self, deepvac_config):
@@ -416,6 +482,7 @@ class SynthesisTextFromVideo(SynthesisText):
         self.is_border = self.conf.is_border
         self.dump_prefix = 'scene'
         self.fw = open(os.path.join(self.conf.output_dir,'video.txt'),'w')
+        
 
     def buildScene(self, i):
         for _ in range(self.sample_rate):
@@ -431,8 +498,10 @@ class SynthesisTextFromVideo(SynthesisText):
 
     def buildTextWithScene(self, i):
         for idx in range(self.text_num):
-            s, font = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
-            fillcolor = self.fg_color[np.random.randint(0, self.fg_color_len)]
+            if not self.use_same_font or idx==0:
+                s, font = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
+                fillcolor = self.fg_color[np.random.randint(0, self.fg_color_len)]
+            s, _ = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
             self.draw = ImageDraw.Draw(self.fg_images[idx])
             self.drawText(self.font_offset,font,fillcolor,s)
             self.randomRotateImage(idx)
@@ -467,8 +536,10 @@ class SynthesisTextFromImage(SynthesisText):
 
     def buildTextWithScene(self, i):
         for idx in range(self.text_num):
-            s, font = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
-            fillcolor = self.fg_color[np.random.randint(0, self.fg_color_len)]
+            if not self.use_same_font or idx==0:
+                s, font = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
+                fillcolor = self.fg_color[np.random.randint(0, self.fg_color_len)]
+            s, _ = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
             self.draw = ImageDraw.Draw(self.fg_images[idx])
             self.drawText(self.font_offset,font,fillcolor,s)
             self.randomRotateImage(idx)
