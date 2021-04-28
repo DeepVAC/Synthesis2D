@@ -290,6 +290,8 @@ class SynthesisText(SynthesisBase):
             fw.write(s+'\n')
             box_num += 1
 
+        fw.close()
+
         pasted_img = cv2.cvtColor(np.asarray(self.pil_img),cv2.COLOR_RGB2BGR)
         image_name = '{}_{}.jpg'.format(self.dump_prefix,str(i).zfill(6))
         self.dumpImgToPath(image_name, pasted_img)
@@ -396,6 +398,7 @@ class SynthesisText(SynthesisBase):
     def buildPasteArea(self, i):
         self.text_boxes = []
         if self.is_dense:
+            # paste dense text 
             self.genDenseTextBoxes()
         else:
             kp_image = cv2.Canny(self.frame, 50, 150) // 255
@@ -421,17 +424,12 @@ class SynthesisText(SynthesisBase):
 class SynthesisTextPure(SynthesisText):
     def __init__(self, deepvac_config):
         super(SynthesisTextPure, self).__init__(deepvac_config)
-
-    def __exit__(self):
-        self.fw.close()
     
     def auditConfig(self):
         super(SynthesisTextPure, self).auditConfig()
         self.bg_color = [(255,255,255),(10,10,200),(200,10,10),(10,10,200),(10,10,10)]
         self.bg_color_len = len(self.bg_color)
         self.font_offset = (0, 0)
-        self.is_border = self.conf.is_border
-        self.fw = open(os.path.join(self.conf.output_dir,'pure.txt'),'w')
         self.dump_prefix = 'pure'
 
     def buildScene(self, i):
@@ -456,9 +454,6 @@ class SynthesisTextFromVideo(SynthesisText):
     def __init__(self, deepvac_config):
         super(SynthesisTextFromVideo, self).__init__(deepvac_config)
 
-    def __exit__(self):
-        self.fw.close()
-
     def auditConfig(self):
         super(SynthesisTextFromVideo, self).auditConfig()
         self.video_file = self.conf.video_file
@@ -479,10 +474,7 @@ class SynthesisTextFromVideo(SynthesisText):
             self.frame_height = int(self.frame_height * self.resize_ratio)
 
         self.font_offset = (0, 0)
-        self.is_border = self.conf.is_border
         self.dump_prefix = 'scene'
-        self.fw = open(os.path.join(self.conf.output_dir,'video.txt'),'w')
-        
 
     def buildScene(self, i):
         for _ in range(self.sample_rate):
@@ -490,6 +482,7 @@ class SynthesisTextFromVideo(SynthesisText):
 
             if not success:
                 return
+        self.frame = np.rot90(self.frame, k=random.choice([1, 3]))
         self.frame = cv2.resize(self.frame, (self.scene_hw[1],self.scene_hw[0]))
 
         self.pil_img = Image.fromarray(cv2.cvtColor(self.frame,cv2.COLOR_BGR2RGB))
@@ -510,9 +503,6 @@ class SynthesisTextFromImage(SynthesisText):
     def __init__(self, deepvac_config):
         super(SynthesisTextFromImage, self).__init__(deepvac_config)
 
-    def __exit__(self):
-        self.fw.close()
-
     def auditConfig(self):
         super(SynthesisTextFromImage, self).auditConfig()
         self.images_dir = self.conf.images_dir
@@ -523,13 +513,80 @@ class SynthesisTextFromImage(SynthesisText):
         if self.images_num==0:
             raise Exception("No image was found in {}!".format(self.images))
         self.font_offset = (0, 0)
-        self.is_border = self.conf.is_border
         self.dump_prefix = 'image'
-        self.fw = open(os.path.join(self.conf.output_dir,'image.txt'),'w')
 
     def buildScene(self, i):
         image = cv2.imread(os.path.join(self.images_dir, self.images[i%self.images_num]))
         self.frame = cv2.resize(image,(self.scene_hw[1],self.scene_hw[0]))
+        self.pil_img = Image.fromarray(cv2.cvtColor(self.frame,cv2.COLOR_BGR2RGB))
+        self.draw = ImageDraw.Draw(self.pil_img)
+        self.buildFGImages()
+
+    def buildTextWithScene(self, i):
+        for idx in range(self.text_num):
+            if not self.use_same_font or idx==0:
+                s, font = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
+                fillcolor = self.fg_color[np.random.randint(0, self.fg_color_len)]
+            s, _ = self.setCurrentFontSizeAndGetFont(np.random.randint(0, self.lex_len + 1))
+            self.draw = ImageDraw.Draw(self.fg_images[idx])
+            self.drawText(self.font_offset,font,fillcolor,s)
+            self.randomRotateImage(idx)
+
+class SynthesisTextFromMixed(SynthesisText):
+    def __init__(self, deepvac_config):
+        super(SynthesisTextFromMixed, self).__init__(deepvac_config)
+
+    def auditConfig(self):
+        super(SynthesisTextFromMixed, self).auditConfig()
+        self.images_dir = self.conf.images_dir
+        if not os.path.exists(self.images_dir):
+            raise Exception("Dir {}not found!".format(self.images_dir))
+        self.images = os.listdir(self.images_dir)
+        self.images_num = len(self.images)
+        if self.images_num==0:
+            raise Exception("No image was found in {}!".format(self.images))
+        self.font_offset = (0, 0)
+        self.dump_prefix = 'mixed'
+        self.fillcolors = [(200,200,200),(50,50,50),(0,0,255),(255,0,0),(0,255,0)]
+        self.mode_list = ["origin", "image", "pure"]
+        self.min_block_size = 200
+        self.split_ratio = 4
+
+    def colorFillImg(self, img):
+        h, w = img.shape[:2]
+        if h < self.min_block_size or w < self.min_block_size:
+            mode = random.choice(self.mode_list)
+            if mode == "origin":
+                return img
+            elif mode == "pure":
+                bg_color = random.choice(self.fillcolors)
+                r_channel = np.ones(img.shape[:2], dtype=np.uint8) * bg_color[0]
+                g_channel = np.ones(img.shape[:2], dtype=np.uint8) * bg_color[1]
+                b_channel = np.ones(img.shape[:2], dtype=np.uint8) * bg_color[2]
+                pure = cv2.merge((b_channel, g_channel, r_channel))
+                return pure
+            elif mode == "image":
+                filled_img = cv2.imread(os.path.join(self.images_dir, self.images[np.random.randint(0, self.images_num)]))
+                return cv2.resize(filled_img, (img.shape[1], img.shape[0]))
+            else:
+                LOG.logE("colorFillImg mode error: {} not in ['origin', 'pure', 'image']".format(mode))
+        max_side = max(h, w)
+        borderline = np.random.randint(int(max_side/self.split_ratio), int(2*max_side/self.split_ratio))
+        if h > w:
+            img_top = self.colorFillImg(img[0:borderline, 0:w])
+            img_bottom = self.colorFillImg(img[borderline:h, 0:w])
+            img_res = np.vstack([img_top, img_bottom])
+        else:
+            img_left = self.colorFillImg(img[0:h, 0:borderline])
+            img_right = self.colorFillImg(img[0:h, borderline:w])
+            img_res = np.hstack([img_left, img_right])
+        return img_res
+
+    def buildScene(self, i):
+        image = cv2.imread(os.path.join(self.images_dir, self.images[i%self.images_num]))
+        self.frame = cv2.resize(image,(self.scene_hw[1],self.scene_hw[0]))
+        res = self.colorFillImg(self.frame.copy())
+        self.frame = res
         self.pil_img = Image.fromarray(cv2.cvtColor(self.frame,cv2.COLOR_BGR2RGB))
         self.draw = ImageDraw.Draw(self.pil_img)
         self.buildFGImages()
@@ -560,4 +617,19 @@ if __name__ == '__main__':
     # from pure
     deepvac_config.synthesis.output_dir = 'pure'
     gen = SynthesisTextPure(deepvac_config.synthesis)
+    gen()
+
+    # from mixed
+    deepvac_config.synthesis.output_dir = 'mixed_all'
+    gen = SynthesisTextFromMixed(deepvac_config.synthesis)
+    gen()
+
+    deepvac_config.synthesis.output_dir = 'mixed_pure'
+    gen = SynthesisTextFromMixed(deepvac_config.synthesis)
+    gen.mode_list = ["origin", "pure"]
+    gen()
+
+    deepvac_config.synthesis.output_dir = 'mixed_image'
+    gen = SynthesisTextFromMixed(deepvac_config.synthesis)
+    gen.mode_list = ["origin", "image"]
     gen()
