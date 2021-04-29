@@ -247,6 +247,7 @@ class SynthesisText(SynthesisBase):
     def buildFGImages(self):
         self.is_dense = False
         self.use_same_font = False
+        self.is_one_way = False
         self.text_num = np.random.randint(self.min_text_num,self.max_text_num+1)
         if np.random.rand() < self.conf.dense_ratio:
             self.is_dense = True
@@ -257,6 +258,8 @@ class SynthesisText(SynthesisBase):
             img = Image.new("RGBA", (self.max_font*30, self.max_font+5), color=(0, 0, 0, 0))
             self.fg_images.append(img)
         self.angle = np.random.randint(self.min_rotate_angle, self.max_rotate_angle + 1)
+        if np.random.rand() < self.conf.one_way_ratio:
+            self.is_one_way = True
         if np.random.rand() < self.conf.same_font_ratio:
             self.use_same_font = True
         self.font_size_list = []
@@ -264,7 +267,7 @@ class SynthesisText(SynthesisBase):
 
     def randomRotateImage(self, i):
         self.fg_images[i] = self.fg_images[i].crop((0, 0, self.s_width, self.s_height))
-        if not self.is_dense:
+        if not self.is_dense and not self.is_one_way:
             self.angle = np.random.randint(self.min_rotate_angle, self.max_rotate_angle + 1)
         wh = self.fg_images[i].size[:2]
         self.fg_images[i] = self.fg_images[i].rotate(self.angle, expand=True)
@@ -615,7 +618,7 @@ if __name__ == '__main__':
     gen()
 
     # from pure
-    deepvac_config.synthesis.output_dir = 'pure'
+    deepvac_config.synthesis.output_dir = 'zang'
     gen = SynthesisTextPure(deepvac_config.synthesis)
     gen()
 
