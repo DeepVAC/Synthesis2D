@@ -618,7 +618,7 @@ if __name__ == '__main__':
     gen()
 
     # from pure
-    deepvac_config.synthesis.output_dir = 'zang'
+    deepvac_config.synthesis.output_dir = 'pure'
     gen = SynthesisTextPure(deepvac_config.synthesis)
     gen()
 
