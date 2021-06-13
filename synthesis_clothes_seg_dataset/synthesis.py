@@ -69,15 +69,19 @@ def paste(source_img, clothes_mask, person_mask, dst_img):
     scale_src_bbox_w = scale_src_bbox_w if x + scale_src_bbox_w < w else (w - 1 - x)
     scale_src_bbox_h = scale_src_bbox_h if y + scale_src_bbox_h < h else (h - 1 - y)
 
+    if scale_src_bbox_w * scale_src_bbox_h < h * w / 100:
+        LOG.logI('Target person is too small for dst image: {} vs {}'.format(scale_src_bbox_w * scale_src_bbox_h, h * w))
+        return None, None
+
     #merge person mask and clothes mask
     final_mask = np.where(person_mask != 0, person_mask, clothes_mask)
 
     src_img_crop = source_img[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
     src_mask_crop = clothes_mask[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
     final_mask_crop = final_mask[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
-    src_img_crop = cv2.resize(src_img_crop, (scale_src_bbox_w, scale_src_bbox_h))
-    src_mask_crop = cv2.resize(src_mask_crop, (scale_src_bbox_w, scale_src_bbox_h))
-    final_mask_crop = cv2.resize(final_mask_crop, (scale_src_bbox_w, scale_src_bbox_h))
+    src_img_crop = cv2.resize(src_img_crop, (scale_src_bbox_w, scale_src_bbox_h), interpolation=cv2.INTER_NEAREST)
+    src_mask_crop = cv2.resize(src_mask_crop, (scale_src_bbox_w, scale_src_bbox_h), interpolation=cv2.INTER_NEAREST)
+    final_mask_crop = cv2.resize(final_mask_crop, (scale_src_bbox_w, scale_src_bbox_h), interpolation=cv2.INTER_NEAREST)
 
     #paste the src img to dst img
     dst_img_crop = dst_img[y:y+scale_src_bbox_h, x:x+scale_src_bbox_w, :]
