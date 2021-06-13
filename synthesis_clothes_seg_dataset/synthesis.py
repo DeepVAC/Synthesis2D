@@ -12,31 +12,31 @@ from deepvac.utils import getOverlayFromSegMask
 
 def get_contours(binary_mask):
     binary_mask = np.array(binary_mask, np.uint8)
-    ret, binary_mask = cv2.threshold(binary_mask,0,1,cv2.THRESH_BINARY)  
+    ret, binary_mask = cv2.threshold(binary_mask,0,1,cv2.THRESH_BINARY)
     contours,hierarchy = cv2.findContours(
         binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     return contours
 
-def clothes_mask_to_box(binary_mask):
+def src_mask_to_box(binary_mask):
     contours = get_contours(binary_mask)
-    ori_h, ori_w = binary_mask.shape
-    x = 100000
-    y = 100000
-    x1 = -1
-    y1 = -1
+    img_h, img_w = binary_mask.shape
+    min_x = 100000
+    min_y = 100000
+    max_x = -1
+    max_y = -1
     for cnt in contours:
-        x_, y_, w_, h_ = cv2.boundingRect(cnt)
-        x = min(x, x_)
-        y = min(y, y_)
-        x1 = max(x1, x_+w_)
-        y1 = max(y1, y_+h_)
-        
-    bounding_box = [max(x, 0), max(y, 0), min(x1, ori_w-1), min(y1, ori_h-1)]
+        x, y, w, h  = cv2.boundingRect(cnt)
+        min_x = min(min_x, x)
+        min_y = min(min_y, y)
+        max_x = max(max_x, x+w)
+        max_y = max(max_y, y+h )
+
+    bounding_box = [max(min_x, 0), max(min_y, 0), min(max_x, img_w-1), min(max_y, img_h-1)]
     return bounding_box
 
-def person_mask_to_box(binary_mask):
+def portrait_mask_to_box(binary_mask):
     contours = get_contours(binary_mask)
-    ori_h, ori_w = binary_mask.shape
+    img_h, img_w = binary_mask.shape
     areas = []
     for cnt in contours:
         area = cv2.contourArea(cnt)
@@ -45,17 +45,23 @@ def person_mask_to_box(binary_mask):
         return None
     idx = areas.index(np.max(areas))
     x, y, w, h = cv2.boundingRect(contours[idx])
-    bounding_box = [max(x, 0), max(y, 0), min(x+w, ori_w-1), min(y+h, ori_h-1)]
+    bounding_box = [max(x, 0), max(y, 0), min(x+w, img_w-1), min(y+h, img_h-1)]
     return bounding_box
 
-def paste(source_img, clothes_mask, person_mask, dst_img):
-    clo_bbox = clothes_mask_to_box(cv2.cvtColor(clothes_mask, cv2.COLOR_BGR2GRAY))
-    person_bbox = person_mask_to_box(cv2.cvtColor(person_mask, cv2.COLOR_BGR2GRAY))
-    if person_bbox is None:
-        return None, None
+def paste(src_img, dst_img, src_mask, portrait_mask=None):
+    original_src_bbox = src_mask_to_box(cv2.cvtColor(src_mask, cv2.COLOR_BGR2GRAY))
+    portrait_bbox = None
+    #if use portrait to help
+    if portrait_mask is None:
+        src_bbox = original_src_bbox
+        final_mask = src_mask
+    else:
+        portrait_bbox = portrait_mask_to_box(cv2.cvtColor(portrait_mask, cv2.COLOR_BGR2GRAY))
+        if portrait_bbox is None:
+            return None, None
+        src_bbox = [min(original_src_bbox[0], portrait_bbox[0]), min(original_src_bbox[1], portrait_bbox[1]), max(original_src_bbox[2], portrait_bbox[2]), max(original_src_bbox[3], portrait_bbox[3])]
+        final_mask = np.where(portrait_mask != 0, portrait_mask, src_mask)
 
-    src_bbox = [min(clo_bbox[0], person_bbox[0]), min(clo_bbox[1], person_bbox[1]), max(clo_bbox[2], person_bbox[2]), max(clo_bbox[3], person_bbox[3])]
-    
     src_bbox_h, src_bbox_w = src_bbox[3] - src_bbox[1], src_bbox[2] - src_bbox[0]
     h, w, _ = dst_img.shape
     dst_mask = np.zeros((h, w, 3))
@@ -73,11 +79,8 @@ def paste(source_img, clothes_mask, person_mask, dst_img):
         LOG.logI('Target person is too small for dst image: {} vs {}'.format(scale_src_bbox_w * scale_src_bbox_h, h * w))
         return None, None
 
-    #merge person mask and clothes mask
-    final_mask = np.where(person_mask != 0, person_mask, clothes_mask)
-
-    src_img_crop = source_img[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
-    src_mask_crop = clothes_mask[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
+    src_img_crop = src_img[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
+    src_mask_crop = src_mask[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
     final_mask_crop = final_mask[src_bbox[1]:src_bbox[1]+src_bbox_h, src_bbox[0]:src_bbox[0]+src_bbox_w, :]
     src_img_crop = cv2.resize(src_img_crop, (scale_src_bbox_w, scale_src_bbox_h), interpolation=cv2.INTER_NEAREST)
     src_mask_crop = cv2.resize(src_mask_crop, (scale_src_bbox_w, scale_src_bbox_h), interpolation=cv2.INTER_NEAREST)
@@ -139,7 +142,7 @@ def synthesis(deepvac_config):
 
     if not os.path.exists(synthesis_output_img_dir):
         os.makedirs(synthesis_output_img_dir)
-    
+
     if not os.path.exists(synthesis_output_label_dir):
         os.makedirs(synthesis_output_label_dir)
 
@@ -150,14 +153,18 @@ def synthesis(deepvac_config):
     for name in tqdm(img_names):
         src_img = cv2.imread(os.path.join(deepvac_config.original_image_label_dir, "images", name))
         src_mask = cv2.imread(os.path.join(deepvac_config.original_image_label_dir, "labels", os.path.splitext(name)[0]+'.png'))
-        person_mask = cv2.imread(os.path.join(deepvac_config.portrait_mask_output_dir, os.path.splitext(name)[0]+'.png'))
+        if deepvac_config.use_portrait_mask:
+            portrait_mask = cv2.imread(os.path.join(deepvac_config.portrait_mask_output_dir, os.path.splitext(name)[0]+'.png'))
+        else:
+            portrait_mask = None
+            
         for idx in range(deepvac_config.multiple):
             src_img_copy = src_img.copy()
             src_mask_copy = src_mask.copy()
-            person_mask_copy = person_mask.copy()
+            portrait_mask_copy = portrait_mask.copy() if portrait_mask is not None else None
             index = random.randint(0, bk_imgs_length-1)
             dst_img = cv2.imread(os.path.join(deepvac_config.bg_dir, bk_imgs[index]))
-            result, mask = paste(src_img_copy, src_mask_copy, person_mask_copy, dst_img)
+            result, mask = paste(src_img_copy, dst_img, src_mask_copy, portrait_mask_copy)
             if result is None:
                 continue
             cv2.imwrite(os.path.join(synthesis_output_img_dir, 'deepvac_synthesis_{}.jpg'.format(count)), result)
@@ -187,13 +194,17 @@ if __name__ == "__main__":
         deepvac_config.synthesis_output_dir = sys.argv[2]
 
     #step1, gen portrait mask
-    LOG.logI('STEP1: gen portrait mask start')
-    genPortraitMask(deepvac_config)
+    if deepvac_config.use_portrait_mask:
+        LOG.logI('STEP1: gen portrait mask start')
+        genPortraitMask(deepvac_config)
+    else:
+        LOG.logI('omit STEP1: gen portrait mask start.')
 
     #step2, synthesis
-    LOG.logI('STEP2: synthesis start')
+    LOG.logI('STEP2: synthesis start.')
     synthesis(deepvac_config)
 
     # step3, show mask
-    LOG.logI('STEP3: show result start')
+    LOG.logI('STEP3: show result start.')
     showMask(deepvac_config)
+
