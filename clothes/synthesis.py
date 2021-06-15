@@ -157,9 +157,9 @@ class Synthesis(object):
             if dst_mask.shape[0] == 0 or dst_mask.shape[1] == 0:
                 return None, None
 
-            rgb_img = cv2.resize(rgb_img, (dst_img.shape[1], dst_img.shape[0]))
-            alpha_img = cv2.resize(alpha_img, (dst_img.shape[1], dst_img.shape[0]))
-            human_img = cv2.resize(human_img, (dst_img.shape[1], dst_img.shape[0])) 
+            rgb_img = cv2.resize(rgb_img, (dst_img.shape[1], dst_img.shape[0]), interpolation=cv2.INTER_NEAREST)
+            alpha_img = cv2.resize(alpha_img, (dst_img.shape[1], dst_img.shape[0]), interpolation=cv2.INTER_NEAREST)
+            human_img = cv2.resize(human_img, (dst_img.shape[1], dst_img.shape[0]), interpolation=cv2.INTER_NEAREST) 
 
             final_mask = np.where(alpha_img != 0, alpha_img, dst_mask)
             final_img = np.where(alpha_img != 0, rgb_img, dst_img)
@@ -196,9 +196,9 @@ class Synthesis(object):
         if dst_mask.shape[0] == 0 or dst_mask.shape[1] == 0:
             return None, None
 
-        rgb_img = cv2.resize(rgb_img, (dst_img.shape[1], dst_img.shape[0]))
-        alpha_img = cv2.resize(alpha_img, (dst_img.shape[1], dst_img.shape[0]))
-        human_img = cv2.resize(human_img, (dst_img.shape[1], dst_img.shape[0]))
+        rgb_img = cv2.resize(rgb_img, (dst_img.shape[1], dst_img.shape[0]), interpolation=cv2.INTER_NEAREST)
+        alpha_img = cv2.resize(alpha_img, (dst_img.shape[1], dst_img.shape[0]), interpolation=cv2.INTER_NEAREST)
+        human_img = cv2.resize(human_img, (dst_img.shape[1], dst_img.shape[0]), interpolation=cv2.INTER_NEAREST)
 
                 
 
