@@ -4,7 +4,7 @@ import numpy as np
 import os
 import random
 from deepvac import LOG
-from deepvac.syszux_helper import Haishoku
+from deepvac.aug.haishoku_helper import Haishoku
 try:
     from fontTools.ttLib import TTFont
 except:

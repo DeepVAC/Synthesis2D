@@ -340,6 +340,9 @@ class SynthesisText(SynthesisBase):
         bg_h, bg_w = self.scene_hw
         for fg_image in self.fg_images:
             fg_w, fg_h = fg_image.size[:2]
+            if fg_w >= bg_w or fg_h >= bg_h:
+                self.text_boxes.append(None)
+                continue
             for try_num in range(self.integral_thre_try_num):
                 text_box = self.genTextBox(self.integral_init_thre+try_num*self.integral_thre_step, (bg_h, bg_w), (fg_h, fg_w))
                 if text_box is not None or try_num==self.integral_thre_try_num - 1:

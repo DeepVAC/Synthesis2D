@@ -1,5 +1,5 @@
-from deepvac.syszux_config import *
-
+from deepvac import AttrDict, new
+config = new()
 config.synthesis = AttrDict()
 
 #synthesis
