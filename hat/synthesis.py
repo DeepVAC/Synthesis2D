@@ -1,21 +1,20 @@
 import os
-import torch
-import torch.nn.functional as F
-import numpy as np
-import cv2
 import time
 import random
 import math
+import numpy as np
+import cv2
+
+import torch
+import torch.nn.functional as F
 
 from deepvac import Deepvac, LOG
-from deepvac.syszux_aug import ColorJitterAug, BrightnessJitterAug, ContrastJitterAug, HalfDarkAug, PerspectAug
-from modules.model import RetinaFaceMobileNet, RetinaFaceResNet
-from deepvac.syszux_post_process import py_cpu_nms, decode, decode_landm, PriorBox
+from deepvac.aug import PerspectAug
+from deepvac.utils.face_utils import py_cpu_nms, decode, decode_landm, PriorBox
 
 class RetinaTest(Deepvac):
-    def __init__(self, retina_config):
-        super(RetinaTest, self).__init__(retina_config)
-        self.auditConfig()
+    def __init__(self, deepvac_config):
+        super(RetinaTest, self).__init__(deepvac_config)
         self.priorbox_cfgs = {
             'min_sizes': [[16, 32], [64, 128], [256, 512]],
             'steps': [8, 16, 32],
@@ -26,22 +25,19 @@ class RetinaTest(Deepvac):
     def auditConfig(self):
         pass
 
-    def initNetWithCode(self):
-        self.net = RetinaFaceResNet()
-
     def _pre_process(self, img_raw):
         h, w, c = img_raw.shape
         max_edge = max(h,w)
-        if(max_edge > self.conf.max_edge):
-            img_raw = cv2.resize(img_raw,(int(w * self.conf.max_edge / max_edge), int(h * self.conf.max_edge / max_edge)))
+        if(max_edge > self.config.max_edge):
+            img_raw = cv2.resize(img_raw,(int(w * self.config.max_edge / max_edge), int(h * self.config.max_edge / max_edge)))
 
         img = np.float32(img_raw)
 
         im_height, im_width, _ = img.shape
-        img -= self.conf.rgb_means
+        img -= self.config.rgb_means
         img = img.transpose(2, 0, 1)
         self.input_tensor = torch.from_numpy(img).unsqueeze(0)
-        self.input_tensor = self.input_tensor.to(self.device)
+        self.input_tensor = self.input_tensor.to(self.config.device)
         self.img_raw = img_raw
 
     def _post_process(self, preds):
@@ -50,11 +46,11 @@ class RetinaTest(Deepvac):
 
         priorbox = PriorBox(self.priorbox_cfgs, image_size=(self.img_raw.shape[0], self.img_raw.shape[1]))
         priors = priorbox.forward()
-        priors = priors.to(self.device)
+        priors = priors.to(self.config.device)
         prior_data = priors.data
         resize = 1
         scale = torch.Tensor([self.input_tensor.shape[3], self.input_tensor.shape[2], self.input_tensor.shape[3], self.input_tensor.shape[2]])
-        scale = scale.to(self.device)
+        scale = scale.to(self.config.device)
         boxes = decode(loc.data.squeeze(0), prior_data, self.variance)
         boxes = boxes * scale / resize
         boxes = boxes.cpu().numpy()
@@ -63,18 +59,18 @@ class RetinaTest(Deepvac):
         scale1 = torch.Tensor([self.input_tensor.shape[3], self.input_tensor.shape[2], self.input_tensor.shape[3], self.input_tensor.shape[2],
                         self.input_tensor.shape[3], self.input_tensor.shape[2], self.input_tensor.shape[3], self.input_tensor.shape[2],
                         self.input_tensor.shape[3], self.input_tensor.shape[2]])
-        scale1 = scale1.to(self.device)
+        scale1 = scale1.to(self.config.device)
         landms = landms * scale1 / resize
         landms = landms.cpu().numpy()
 
         # ignore low scores
-        inds = np.where(scores > self.conf.confidence_threshold)[0]
+        inds = np.where(scores > self.config.confidence_threshold)[0]
         boxes = boxes[inds]
         landms = landms[inds]
         scores = scores[inds]
 
         # keep top-K before NMS
-        order = scores.argsort()[::-1][:self.conf.top_k]
+        order = scores.argsort()[::-1][:self.config.top_k]
         # order = scores.argsort()[::-1][:args.top_k]
         boxes = boxes[order]
         landms = landms[order]
@@ -82,13 +78,13 @@ class RetinaTest(Deepvac):
 
         # do NMS
         dets = np.hstack((boxes, scores[:, np.newaxis])).astype(np.float32, copy=False)
-        keep = py_cpu_nms(dets, self.conf.nms_threshold)
+        keep = py_cpu_nms(dets, self.config.nms_threshold)
         dets = dets[keep, :]
         landms = landms[keep]
 
         # keep top-K faster NMS
-        dets = dets[:self.conf.keep_top_k, :]
-        landms = landms[:self.conf.keep_top_k, :]
+        dets = dets[:self.config.keep_top_k, :]
+        landms = landms[:self.config.keep_top_k, :]
         if len(dets)==0:
             return [], []
 
@@ -101,43 +97,33 @@ class RetinaTest(Deepvac):
         self._pre_process(image)
 
         tic = time.time()
-        preds = self.net(self.input_tensor)
+        preds = self.config.net(self.input_tensor)
         end = time.time() - tic
-        print('net forward time: {:.4f}'.format(time.time() - tic))
+        LOG.logI('net forward time: {:.4f}'.format(time.time() - tic))
 
         return self._post_process(preds)
 
 
-class Synthesis2D(object):
-    def __init__(self, config):
-        self.conf = config
+class Synthesis2D(Deepvac):
+    def __init__(self, deepvac_config):
+        super(Synthesis2D, self).__init__(deepvac_config)
         self.retina_det = RetinaTest(config)
-        self.color_jitter_aug = ColorJitterAug(config)
-        self.bright_jitter_aug = BrightnessJitterAug(config)
-        self.contrast_jitter_aug = ContrastJitterAug(config)
 
-    def process(self, img_raw, rgb_hat, a):
+    def auditConfig(self):
+        pass
+
+    def _synthesisData(self, img_raw, rgb_hat, a):
         h, w, _ = rgb_hat.shape
 
         factor = random.uniform(2.0, 2.2)
         dh = random.randint(-5, 2)
         dw = random.randint(-3, 3)
 
-        if random.randint(0, 1):
-            rgb_hat = self.color_jitter_aug(rgb_hat)
-
-        if random.randint(0, 1):
-            rgb_hat = self.bright_jitter_aug(rgb_hat)
-
-        if random.randint(0, 1):
-            rgb_hat = self.contrast_jitter_aug(rgb_hat)
-
-        if random.randint(0, 1):
-            rgb_hat = cv2.GaussianBlur(rgb_hat, (3,3), 1.5)
+        rgb_hat = self.config.compose(rgb_hat)
 
         bbox, landmark = self.retina_det(img_raw)
         if len(bbox) == 0:
-            print('error noface detect!')
+            LOG.logI('error noface detect!')
             return None, None
     
         point1 = landmark[0:2]
@@ -150,7 +136,7 @@ class Synthesis2D(object):
         resized_hat_w = int(round(rgb_hat.shape[1]*b_w/rgb_hat.shape[1]*factor))
   
         if resized_hat_w <= 0 or resized_hat_h <= 0:
-            print('error resized_hat_w')
+            LOG.logI('error resized_hat_w')
             return None, None
 
         angle = math.atan2(point1[1]-point2[1], point2[0]-point1[0])
@@ -213,18 +199,23 @@ class Synthesis2D(object):
         
         return img_raw, mask_label
 
-    def __call__(self):
-        input_image_dir = self.conf.input_image_dir
-        input_hat_image_dir = self.conf.input_hat_image_dir
-        input_hat_mask_dir = self.conf.input_hat_mask_dir
-        output_image_dir = self.conf.output_image_dir
-        output_anno_dir = self.conf.output_anno_dir
+    def doTest(self):
+        input_image_dir = self.config.input_image_dir
+        input_hat_image_dir = self.config.input_hat_image_dir
+        input_hat_mask_dir = self.config.input_hat_mask_dir
+        output_image_dir = self.config.output_image_dir
+        output_anno_dir = self.config.output_anno_dir
+
+        if not os.path.exists(self.config.output_image_dir):
+            os.makedirs(self.config.output_image_dir)
+        if not os.path.exists(self.config.output_anno_dir):
+            os.makedirs(self.config.output_anno_dir)
         
         imgs = os.listdir(input_image_dir)
         hats = os.listdir(input_hat_image_dir)
     
         for i, img in enumerate(imgs):
-            print('num: ', i, os.path.join(input_image_dir, img))
+            LOG.logI('num: {} ---- path: {}'.format(i, os.path.join(input_image_dir, img)))
         
             img_raw = cv2.imread('{}/{}'.format(input_image_dir, img))
         
@@ -233,20 +224,21 @@ class Synthesis2D(object):
             rgb_hat = cv2.imread('{}/{}'.format(input_hat_image_dir, name))
             a = cv2.imread('{}/{}.png'.format(input_hat_mask_dir, os.path.splitext(name)[0]))
         
-            new_img, mask_label = self.process(img_raw, rgb_hat, a)
+            new_img, mask_label = self._synthesisData(img_raw, rgb_hat, a)
         
             if new_img is None:
                 continue
         
             cv2.imwrite("{}/{}".format(output_image_dir, img),new_img)
             cv2.imwrite("{}/{}.png".format(output_anno_dir, os.path.splitext(img)[0]),mask_label)
+        self.config.sample = torch.rand((1, 3, 112, 112))
 
-def generate(hat_image_input_dir, hat_mask_input_dir, hat_image_output_dir, hat_mask_output_dir):
-    imgs = os.listdir(hat_mask_input_dir)
+def generate(deepvac_config):
+    imgs = os.listdir(deepvac_config.generate_input_hat_mask_dir_from_cocoannotator)
 
     for img in imgs:
-        alpha = cv2.imread(os.path.join(hat_mask_input_dir, img))
-        ori_img = cv2.imread('{}/{}.jpg'.format(hat_image_input_dir, os.path.splitext(img)[0]))        
+        alpha = cv2.imread(os.path.join(deepvac_config.generate_input_hat_mask_dir_from_cocoannotator, img))
+        ori_img = cv2.imread('{}/{}.jpg'.format(deepvac_config.generate_input_hat_dir_image_from_cocoannotator, os.path.splitext(img)[0]))        
         alpha[alpha!=1] = 0
         ori_img = cv2.multiply(ori_img, alpha)
         ori_img[ori_img==0] = 255
@@ -261,78 +253,85 @@ def generate(hat_image_input_dir, hat_mask_input_dir, hat_image_output_dir, hat_
         alpha = alpha[ymin:ymax, xmin:xmax]        
         ori_img = ori_img[ymin:ymax, xmin:xmax]
 
-        cv2.imwrite(os.path.join(hat_mask_output_dir, img), alpha)
-        cv2.imwrite('{}/{}.jpg'.format(hat_image_output_dir, os.path.splitext(img)[0]), ori_img)
+        cv2.imwrite(os.path.join(deepvac_config.generate_output_hat_mask_dir, img), alpha)
+        cv2.imwrite('{}/{}.jpg'.format(deepvac_config.generate_output_hat_image_dir, os.path.splitext(img)[0]), ori_img)
 
 
-def perspect(image_dir, mask_dir, num):
-    names = os.listdir(image_dir)
+def perspect(deepvac_config):
+    names = os.listdir(deepvac_config.perspect_image_dir)
 
-    perspect_aug = PerspectAug(None)
-    perspect_aug_mask = PerspectAug(None)
-    perspect_aug_mask.borderValue = (0, 0, 0)
+    perspect_aug = PerspectAug(deepvac_config)
     
     for name in names:
-        for i in range(num):
-            img = cv2.imread('{}/{}.jpg'.format(image_dir, os.path.splitext(name)[0]))
-            mask = cv2.imread('{}/{}.png'.format(mask_dir, os.path.splitext(name)[0]))
+        for i in range(deepvac_config.perspect_num):
+            img = cv2.imread('{}/{}.jpg'.format(deepvac_config.perspect_image_dir, os.path.splitext(name)[0]))
+            mask = cv2.imread('{}/{}.png'.format(deepvac_config.perspect_mask_dir, os.path.splitext(name)[0]))
+            
+            perspect_aug.config.borderValue = (255, 255, 255)
             perspect_img = perspect_aug(img)
-            perspect_mask = perspect_aug_mask(mask)
-            cv2.imwrite('{}/{}_{}.jpg'.format(image_dir, os.path.splitext(name)[0], i+1), perspect_img)
-            cv2.imwrite('{}/{}_{}.png'.format(mask_dir, os.path.splitext(name)[0], i+1), perspect_mask)
 
-def flip(image_dir, mask_dir):
-    names = os.listdir(image_dir)
+            perspect_aug.config.borderValue = (0, 0, 0)
+            perspect_mask = perspect_aug(mask)
+
+            cv2.imwrite('{}/{}_{}.jpg'.format(deepvac_config.perspect_image_dir, os.path.splitext(name)[0], i+1), perspect_img)
+            cv2.imwrite('{}/{}_{}.png'.format(deepvac_config.perspect_mask_dir, os.path.splitext(name)[0], i+1), perspect_mask)
+
+def flip(deepvac_config):
+    names = os.listdir(deepvac_config.flip_image_dir)
     for name in names:
-        img = cv2.imread('{}/{}.jpg'.format(image_dir, os.path.splitext(name)[0]))
-        mask = cv2.imread('{}/{}.png'.format(mask_dir, os.path.splitext(name)[0]))
+        img = cv2.imread('{}/{}.jpg'.format(deepvac_config.flip_image_dir, os.path.splitext(name)[0]))
+        mask = cv2.imread('{}/{}.png'.format(deepvac_config.flip_mask_dir, os.path.splitext(name)[0]))
         img_flip = cv2.flip(img, 1)
         mask_flip = cv2.flip(mask, 1)
 
-        cv2.imwrite('{}/{}_flip.jpg'.format(image_dir, os.path.splitext(name)[0]), img_flip)
-        cv2.imwrite('{}/{}_flip.png'.format(mask_dir, os.path.splitext(name)[0]), mask_flip)
+        cv2.imwrite('{}/{}_flip.jpg'.format(deepvac_config.flip_image_dir, os.path.splitext(name)[0]), img_flip)
+        cv2.imwrite('{}/{}_flip.png'.format(deepvac_config.flip_mask_dir, os.path.splitext(name)[0]), mask_flip)
 
 def checkMask(mask):
     if mask.ndim == 3:
         mask = mask[:, :, 0]
 
-def fusion(hat_mask_dir, clothes_mask_dir, new_mask_dir):
-    hats = os.listdir(hat_mask_dir)
+def fusion(deepvac_config):
+    if not os.path.exists(deepvac_config.fusion_new_mask_dir):
+        os.makedirs(deepvac_config.fusion_new_mask_dir)
+
+    hats = os.listdir(deepvac_config.fusion_hat_mask_dir)
+
     for fn in hats:
-        fp = os.path.join(hat_mask_dir, fn)
+        fp = os.path.join(deepvac_config.fusion_hat_mask_dir, fn)
         mask_hat = cv2.imread(fp)
         checkMask(mask_hat)
 
-        fp = os.path.join(clothes_mask_dir, fn)
+        fp = os.path.join(deepvac_config.fusion_clothes_mask_dir, fn)
         mask_clothes = cv2.imread(fp)
         checkMask(mask_clothes)
 
         mask = np.clip(mask_hat + mask_clothes, 0, 3)
-        cv2.imwrite(os.path.join(new_mask_dir, fn), mask)
+        cv2.imwrite(os.path.join(deepvac_config.fusion_new_mask_dir, fn), mask)
 
 if __name__ == '__main__':
-    from config import config
+    from config import config as deepvac_config
     import sys
     if len(sys.argv) != 2:
-        LOG.logE("Usage: python synthesis.py <synthesis|perspect|fusion|flip>", exit=True)
+        LOG.logE("Usage: python synthesis.py <synthesis|perspect|fusion|flip|generate>", exit=True)
 
     op = sys.argv[1]
 
-    if op not in ('synthesis', 'perspect', 'fusion', 'flip'):
-        LOG.logE("Usage: python synthesis.py <synthesis|perspect|fusion|flip>", exit=True)
+    if op not in ('synthesis', 'perspect', 'fusion', 'flip', 'generate'):
+        LOG.logE("Usage: python synthesis.py <synthesis|perspect|fusion|flip|generate>", exit=True)
 
     if op == 'synthesis':
-        synthesis = Synthesis2D(config)
+        synthesis = Synthesis2D(deepvac_config)
         synthesis()
     
     if op == 'perspect':
-        perspect(config.perspect_image_dir, config.perspect_mask_dir, config.perspect_num)
+        perspect(deepvac_config)
 
     if op == 'fusion':
-        fusion(config.fusion_hat_mask_dir, config.fusion_clothes_mask_dir, config.fusion_new_mask_dir)
+        fusion(deepvac_config)
     
     if op == 'flip':
-        flip(config.flip_image_dir, config.flip_mask_dir)
+        flip(deepvac_config)
 
     if op == 'generate':
-        generate(config.generate_input_hat_dir_image_from_cocoannotator, config.generate_input_hat_mask_dir_from_cocoannotator, config.generate_output_hat_image_dir, config.generate_output_hat_mask_dir)
+        generate(deepvac_config)

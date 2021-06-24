@@ -3,18 +3,39 @@ import os
 import random
 import time
 import math
-import tqdm
+from tqdm import tqdm
+from PIL import Image
 
 import torch
 import cv2
 
-from deepvac import LOG
+from deepvac import LOG, Deepvac
 
-from network import HRNet
-
-class Synthesis(object):
+class PortraitSegTest(Deepvac):
     def __init__(self, deepvac_config):
-        self.config = deepvac_config
+        super(PortraitSegTest, self).__init__(deepvac_config)
+        if not os.path.exists(self.config.portrait_mask_output_dir):
+            os.makedirs(self.config.portrait_mask_output_dir, exist_ok=True)
+
+    def __call__(self, img_file):
+        image = cv2.imread(img_file)
+        h, w = image.shape[:2]
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        input_tensor = self.config.compose(Image.fromarray(image))
+        input_tensor = input_tensor.unsqueeze(0)
+        input_tensor = input_tensor.to(self.config.device)
+        
+        with torch.no_grad():
+            portrait_mask = self.config.net({"images": input_tensor})["pred"]
+        portrait_mask = np.argmax(portrait_mask.cpu().numpy(), axis=1)[0]
+        mask = cv2.resize(portrait_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        fn = os.path.splitext(os.path.basename(img_file))[0]+'.png'
+        cv2.imwrite(os.path.join(self.config.portrait_mask_output_dir, fn), mask)
+
+class Synthesis(Deepvac):
+    def __init__(self, deepvac_config):
+        super(Synthesis, self).__init__(deepvac_config)
+        self.portrait_seg = PortraitSegTest(deepvac_config)
         self.is_clothes_task = self.config.is_clothes_task
         self.auditConfig()
 
@@ -351,15 +372,26 @@ class Synthesis(object):
                 self.human_mask_path_list.append(os.path.join(self.config.portrait_mask_output_dir, f.replace('jpg', 'png')))
         LOG.logI('Length of image_path_list is {} ...'.format(len(self.image_path_list)))
 
+    def genPortraitMask(self):
+        for file_name in tqdm(os.listdir(self.config.input_image_dir)):
+            file_path = os.path.join(self.config.input_image_dir, file_name)
+            self.portrait_seg(file_path)
 
-    def __call__(self):
+    def doTest(self):
 
-        self._reset()
-        self._getImageAndLabelPathList()
+        #step1, gen portrait mask
+        if self.config.gen_portrait_mask and self.config.is_clothes_task:
+            LOG.logI('STEP1: gen portrait mask start')
+            self.genPortraitMask()
+        else:
+            LOG.logI('omit STEP1: gen portrait mask start.')
 
-        # LOG.logI('Shuffle begin...')
-        # self._shuffle()
-        # LOG.logI('Shuffle finish...')
+        #step2, synthesis
+        LOG.logI('STEP2: synthesis start.')
+
+        LOG.logI('Shuffle begin...')
+        self._shuffle()
+        LOG.logI('Shuffle finish...')
 
         LOG.logI('Filter images begin...')
         if self.is_clothes_task:
@@ -379,62 +411,10 @@ class Synthesis(object):
             self.processForHuman()
         LOG.logI('Process finish...')
 
-        # self.saveImage()
-
-class SegUnit(object):
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
-
-    def __init__(self, deepvac_config):
-        self.config = deepvac_config
-        self.portrait_net = HRNet(num_classes=self.config.num_classes)
-        self.portrait_net.load_state_dict(torch.load(self.config.portrait_model))
-        self.portrait_net.to(self.config.core.device)
-        self.portrait_net.eval()
-        os.makedirs(self.config.synthesis.portrait_mask_output_dir, exist_ok=True)
-
-    def transform(self, img_file):
-        # ndarray
-        image = cv2.imread(img_file, 1)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, self.config.input_size)
-        image = (image / 255. - self.mean) / self.std
-        # torch tensor
-        img = torch.from_numpy(image).float()
-        img = img.unsqueeze(0).permute(0, 3, 1, 2)
-        return img.to(self.config.core.device)
-
-    def __call__(self, img_file):
-        image = cv2.imread(img_file)
-        h, w = image.shape[:2]
-        image0 = image1 = cv2.resize(image, (448, 448))
-        img = self.transform(img_file)
-
-        with torch.no_grad():
-            portrait_mask = self.portrait_net({"images": img})["pred"]
-        portrait_mask = np.argmax(portrait_mask.cpu().numpy(), axis=1)[0]
-        mask = cv2.resize(portrait_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-        fn = os.path.splitext(os.path.basename(img_file))[0]+'.png'
-        cv2.imwrite(os.path.join(self.config.portrait_mask_output_dir, fn), mask)
-
-def genPortraitMask(deepvac_config):
-    seg_unit = SegUnit(deepvac_config)
-    original_img_dir = deepvac_config.synthesis.input_image_dir
-    for file_name in tqdm(os.listdir(original_img_dir)):
-        file_path = os.path.join(original_img_dir, file_name)
-        seg_unit(file_path)
+        self.config.sample = torch.rand((1, 3, 32, 32))
 
 if __name__ == "__main__":
     from config import config as deepvac_config
 
-    #step1, gen portrait mask
-    if deepvac_config.use_portrait_mask and deepvac_config.synthesis.is_clothes_task:
-        LOG.logI('STEP1: gen portrait mask start')
-        genPortraitMask(deepvac_config)
-    else:
-        LOG.logI('omit STEP1: gen portrait mask start.')
-
-    #step2, synthesis
-    LOG.logI('STEP2: synthesis start.')
-    synthesis = Synthesis(deepvac_config.synthesis)
+    synthesis = Synthesis(deepvac_config)
     synthesis()

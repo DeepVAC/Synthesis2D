@@ -1,24 +1,34 @@
 import torch 
-from deepvac import config, AttrDict
+from deepvac import AttrDict, new
+from modules.model import RetinaFaceMobileNet, RetinaFaceResNet
 
-config.disable_git = True
-config.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+from aug import SynthesisHatComposer
 
-config.model_path = "/ your face det model path /"
-config.confidence_threshold = 0.02
-config.nms_threshold = 0.4
-config.top_k = 5000
-config.keep_top_k = 1
-config.max_edge = 2000
-config.rgb_means = (104, 117, 123)
+config = new('RetinaTest')
 
-config.input_image_dir = '/ your input image path /'
+config.core.RetinaTest.disable_git = True
+config.core.RetinaTest.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-config.input_hat_mask_dir = '/ your hat mask path /'
-config.input_hat_image_dir = '/ your hat(chartlet) image path /'
+config.core.RetinaTest.model_path = "/ your face det model path /"
+config.core.RetinaTest.confidence_threshold = 0.02
+config.core.RetinaTest.nms_threshold = 0.4
+config.core.RetinaTest.top_k = 5000
+config.core.RetinaTest.keep_top_k = 1
+config.core.RetinaTest.max_edge = 2000
+config.core.RetinaTest.rgb_means = (104, 117, 123)
+config.core.RetinaTest.net = RetinaFaceResNet()
+config.core.RetinaTest.test_loader = ''
 
-config.output_image_dir = '/ your output image path /'
-config.output_anno_dir = '/ your output annotation path /'
+config.core.Synthesis2D = config.core.RetinaTest.clone()
+config.core.Synthesis2D.input_image_dir = '/ your input image path /'
+
+config.core.Synthesis2D.input_hat_mask_dir = '/ your hat mask path /'
+config.core.Synthesis2D.input_hat_image_dir = '/ your hat(chartlet) image path /'
+
+config.core.Synthesis2D.output_image_dir = '/ your output image path /'
+config.core.Synthesis2D.output_anno_dir = '/ your output annotation path /'
+
+config.core.Synthesis2D.compose = SynthesisHatComposer(config)
 
 config.perspect_image_dir = '/ your perspect image dir /'
 config.perspect_mask_dir = '/ your perspect mask dir /'
