@@ -21,9 +21,9 @@ if __name__ == "__main__":
     for sample_path_prefix, json_path in zip(sample_path_prefixs, json_paths):
         if not os.path.exists(sample_path_prefix):
             LOG.logE("Path {} not exists !".format(sample_path_prefix), exit=True)
-        config.core.test_dataset = CocoCVSegDataset(config, sample_path_prefix, json_path, config.cat2idx)
-        config.core.test_loader = torch.utils.data.DataLoader(config.core.test_dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
+        config.test_dataset = CocoCVSegDataset(config, sample_path_prefix, json_path, config.cat2idx)
+        config.test_loader = torch.utils.data.DataLoader(config.test_dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 
-        for idx, (img, label, _, file_path) in tqdm(enumerate(config.core.test_loader), total=config.core.test_loader.__len__()):
+        for idx, (img, label, _, file_path) in tqdm(enumerate(config.test_loader), total=config.test_loader.__len__()):
             continue
         LOG.logI("Json file {} analyze done!".format(json_path))

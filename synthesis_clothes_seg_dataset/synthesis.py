@@ -101,7 +101,7 @@ class SegUnit(object):
         self.config = deepvac_config
         self.portrait_net = HRNet(num_classes=self.config.num_classes)
         self.portrait_net.load_state_dict(torch.load(self.config.portrait_model))
-        self.portrait_net.to(self.config.core.device)
+        self.portrait_net.to(self.config.device)
         self.portrait_net.eval()
         os.makedirs(self.config.portrait_mask_output_dir, exist_ok=True)
 
@@ -114,7 +114,7 @@ class SegUnit(object):
         # torch tensor
         img = torch.from_numpy(image).float()
         img = img.unsqueeze(0).permute(0, 3, 1, 2)
-        return img.to(self.config.core.device)
+        return img.to(self.config.device)
 
     def __call__(self, img_file):
         image = cv2.imread(img_file)

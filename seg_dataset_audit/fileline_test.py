@@ -18,10 +18,10 @@ if __name__ == "__main__":
     if len(sys.argv) >=3:
         config.sample_path_prefix = sys.argv[2]
 
-    config.core.test_dataset = FileLineCvSegAuditDataset(config, fileline_path=config.file_path, delimiter=config.delimiter, sample_path_prefix=config.sample_path_prefix)
-    config.core.test_loader = torch.utils.data.DataLoader(config.core.test_dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
+    config.test_dataset = FileLineCvSegAuditDataset(config, fileline_path=config.file_path, delimiter=config.delimiter, sample_path_prefix=config.sample_path_prefix)
+    config.test_loader = torch.utils.data.DataLoader(config.test_dataset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 
-    for idx, (img, label, _, file_path) in tqdm(enumerate(config.core.test_loader), total=config.core.test_loader.__len__()):
+    for idx, (img, label, _, file_path) in tqdm(enumerate(config.test_loader), total=config.test_loader.__len__()):
         pass
 
     LOG.logI("fileline file {} analyze done!".format(config.file_path))

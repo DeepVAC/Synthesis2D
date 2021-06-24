@@ -1,6 +1,7 @@
-import os
-from deepvac import config, AttrDict
-config.core.device = "cuda"
+from deepvac import new
+
+config = new()
+config.device = "cuda"
 config.num_classes = 2
 # config.skin_model = "weights/skin.pth"
 config.input_size = (448, 448)

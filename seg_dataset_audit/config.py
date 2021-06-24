@@ -1,8 +1,10 @@
 import torch
 from torchvision import transforms as trans
-from deepvac import config, AttrDict
+from deepvac import AttrDict, new
 from deepvac.datasets import CocoCVSegDataset, FileLineCvSegAuditDataset
 from aug.aug import *
+
+config = new()
 #aug
 config.aug.ImageWithMaskIntersectAudit = AttrDict()
 config.aug.ImageWithMaskIntersectAudit.is_consider_bg = True
