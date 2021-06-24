@@ -11,8 +11,8 @@ config.core.PortraitSegTest.device = torch.device('cuda' if torch.cuda.is_availa
 
 num_classes = 2
 config.core.PortraitSegTest.net = HRNet(num_classes=num_classes)
-config.core.PortraitSegTest.portrait_mask_output_dir = '/gemfield/hostpv2/biaozhu/mask_test'#'<your-portrait-mask-dir>'
-config.core.PortraitSegTest.model_path = '/gemfield/hostpv2/wangyuhang/weights/portrait.pth'#'weights/portrait.pth'
+config.core.PortraitSegTest.portrait_mask_output_dir = '<your-portrait-mask-dir>'
+config.core.PortraitSegTest.model_path = 'weights/portrait.pth'
 config.core.PortraitSegTest.test_loader = ''
 
 config.core.PortraitSegTest.compose = trans.Compose([
@@ -25,8 +25,8 @@ config.core.Synthesis = config.core.PortraitSegTest.clone()
 config.core.Synthesis.gen_portrait_mask = True
 config.core.Synthesis.is_clothes_task = True # True: clothes , False: human
 
-config.core.Synthesis.input_image_dir = '/gemfield/hostpv2/biaozhu/images'#'<your-input-image-dir>'
-config.core.Synthesis.input_label_dir = '/gemfield/hostpv2/biaozhu/labels'#'<your-input-label-dir>'
+config.core.Synthesis.input_image_dir = '<your-input-image-dir>'
+config.core.Synthesis.input_label_dir = '<your-input-label-dir>'
 
-config.core.Synthesis.output_image_dir = '/gemfield/hostpv/wangyuhang/Synthesis2D/clothes/generate_test/images'#'<your-output-image-dir>'
-config.core.Synthesis.output_label_dir = '/gemfield/hostpv/wangyuhang/Synthesis2D/clothes/generate_test/labels'#'<your-output-label-dir>'
+config.core.Synthesis.output_image_dir = '<your-output-image-dir>'
+config.core.Synthesis.output_label_dir = '<your-output-label-dir>'
